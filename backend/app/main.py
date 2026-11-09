@@ -1,9 +1,11 @@
 import logging
 import uuid
+from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any
 
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, Query as FastQuery
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
@@ -21,7 +23,7 @@ from app.models import (
 from app.services.retrieval.rag_pipeline import rag_pipeline, RAGResult
 from app.services.classification.query_understanding import CATEGORY_DESCRIPTIONS
 from app.services.evaluation.benchmark_service import benchmark_service
-from app.services.ingestion.document_ingestion import ingest_document_file
+from app.services.ingestion.smart_ingestion import ingest_document_file
 from setup_db import ensure_database_initialized
 
 logger = logging.getLogger("uvicorn.error")
@@ -75,8 +77,9 @@ class RegisterRequest(BaseModel):
     role: str = Field("Bidder", pattern="^(Bidder|Foreign Bidder|Department User|ADMIN)$")
 
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    role: Optional[str] = "Bidder"
+    username: Optional[str] = None
+    password: Optional[str] = None
 
 class AuthResponse(BaseModel):
     access_token: str
@@ -144,20 +147,69 @@ async def register_user(req: RegisterRequest):
 @app.post("/api/v1/auth/login", response_model=AuthResponse)
 async def login_user(req: LoginRequest):
     async with AsyncSessionLocal() as session:
-        stmt = select(User).where(User.username == req.username)
-        res = await session.execute(stmt)
-        user = res.scalars().first()
-        if not user or not verify_password(req.password, user.password_hash or ""):
-            raise HTTPException(status_code=401, detail="Invalid username or password")
+        target_role = req.role or "Bidder"
+        
+        # If credentials provided, authenticate existing user
+        if req.username and req.password:
+            stmt = select(User).where(User.username == req.username)
+            res = await session.execute(stmt)
+            user = res.scalars().first()
+            if not user or not verify_password(req.password, user.password_hash or ""):
+                raise HTTPException(status_code=401, detail="Invalid username or password")
 
-        ur_stmt = select(Role.name).join(UserRole, Role.id == UserRole.role_id).where(UserRole.user_id == user.id)
-        ur_res = await session.execute(ur_stmt)
-        role_name = ur_res.scalar_one_or_none() or "Bidder"
+            ur_stmt = select(Role.name).join(UserRole, Role.id == UserRole.role_id).where(UserRole.user_id == user.id)
+            ur_res = await session.execute(ur_stmt)
+            role_name = ur_res.scalar_one_or_none() or "Bidder"
 
-        token = create_access_token(user.id, user.username, role_name)
+            token = create_access_token(user.id, user.username, role_name)
+            return AuthResponse(
+                access_token=token,
+                user={"id": str(user.id), "username": user.username, "email": user.email, "role": role_name}
+            )
+
+        # 1-Click Fast Login by Role (no username/password required)
+        role_stmt = select(Role).where(Role.name == target_role)
+        role_res = await session.execute(role_stmt)
+        role_obj = role_res.scalars().first()
+        if not role_obj:
+            raise HTTPException(status_code=400, detail=f"Role '{target_role}' not found in system")
+
+        # Find or create a standard user for this role
+        clean_name = target_role.lower().replace(" ", "_")
+        default_username = f"user_{clean_name}"
+        user_stmt = select(User).where(User.username == default_username)
+        user_res = await session.execute(user_stmt)
+        user = user_res.scalars().first()
+
+        if not user:
+            user = User(
+                username=default_username,
+                email=f"{clean_name}@eprocure.gov.in",
+                password_hash=hash_password("clarifibids2026"),
+                is_active=True
+            )
+            session.add(user)
+            await session.flush()
+            session.add(UserRole(user_id=user.id, role_id=role_obj.id))
+            await session.commit()
+        else:
+            # Ensure user has this role mapped
+            check_ur = await session.execute(
+                select(UserRole).where(UserRole.user_id == user.id, UserRole.role_id == role_obj.id)
+            )
+            if not check_ur.scalars().first():
+                session.add(UserRole(user_id=user.id, role_id=role_obj.id))
+                await session.commit()
+
+        token = create_access_token(user.id, user.username, target_role)
         return AuthResponse(
             access_token=token,
-            user={"id": str(user.id), "username": user.username, "email": user.email, "role": role_name}
+            user={
+                "id": str(user.id),
+                "username": user.username,
+                "email": user.email,
+                "role": target_role
+            }
         )
 
 @app.get("/api/v1/auth/me")
@@ -299,6 +351,13 @@ async def upload_document(
         s_name = source_name or file.filename or "Uploaded Document"
         s_desc = description or f"Uploaded via admin console: {file.filename}"
 
+        # Persist raw uploaded file into storage directory for preview and download
+        storage_dir = Path(__file__).resolve().parent.parent / "storage" / "documents"
+        storage_dir.mkdir(parents=True, exist_ok=True)
+        if file.filename:
+            target_file_path = storage_dir / Path(file.filename).name
+            target_file_path.write_bytes(content)
+
         result = await ingest_document_file(
             file_name=file.filename or "uploaded_doc.txt",
             file_bytes=content,
@@ -383,3 +442,151 @@ async def get_evaluation_history():
             for r, q in res.all()
         ]
         return {"total": len(history), "results": history}
+
+# ---------------------------------------------------------
+# Document Raw Download & Page Interactive Preview Routes
+# ---------------------------------------------------------
+
+DOC_SEARCH_DIRS = [
+    Path(__file__).resolve().parent.parent / "data" / "documents",
+    Path(__file__).resolve().parent.parent / "storage" / "documents",
+]
+
+def find_document_file(file_name: str) -> Optional[Path]:
+    clean_name = Path(file_name).name
+    for search_dir in DOC_SEARCH_DIRS:
+        cand = search_dir / clean_name
+        if cand.is_file():
+            return cand
+    return None
+
+@app.get("/api/v1/graph/visualize")
+async def get_knowledge_graph_data():
+    async with AsyncSessionLocal() as session:
+        from app.models import GraphNode, GraphEdge
+        nodes_res = await session.execute(select(GraphNode))
+        nodes = [
+            {
+                "id": str(n.id),
+                "name": n.name,
+                "node_type": n.node_type,
+                "description": n.description
+            }
+            for n in nodes_res.scalars().all()
+        ]
+
+        edges_res = await session.execute(select(GraphEdge))
+        edges = [
+            {
+                "id": str(e.id),
+                "source": str(e.source_node_id),
+                "target": str(e.target_node_id),
+                "relationship_type": e.relationship_type,
+                "weight": e.weight
+            }
+            for e in edges_res.scalars().all()
+        ]
+
+        return {
+            "total_nodes": len(nodes),
+            "total_edges": len(edges),
+            "nodes": nodes,
+            "edges": edges
+        }
+
+@app.get("/api/v1/documents/view/{file_name}")
+async def view_document_pdf(
+    file_name: str,
+    page: Optional[int] = FastQuery(1, description="Page number to open")
+):
+    clean_name = Path(file_name).name
+    target_name = clean_name
+    if clean_name.lower().endswith(".docx"):
+        pdf_alt = clean_name[:-5] + ".pdf"
+        if find_document_file(pdf_alt):
+            target_name = pdf_alt
+
+    file_path = find_document_file(target_name)
+    if not file_path:
+        raise HTTPException(status_code=404, detail=f"Document '{file_name}' not found.")
+
+    media_type = "application/pdf" if file_path.suffix.lower() == ".pdf" else "application/octet-stream"
+    headers = {
+        "Content-Disposition": f'inline; filename="{file_path.name}"'
+    }
+    return FileResponse(path=str(file_path), media_type=media_type, headers=headers)
+
+@app.get("/api/v1/documents/preview")
+async def get_document_page_preview(
+    file_name: str = FastQuery(..., description="Document file name e.g. FAQ.docx or ChecklistForBidders.pdf"),
+    page_number: Optional[int] = FastQuery(1, description="Target page number (1-indexed)"),
+    item_number: Optional[int] = FastQuery(None, description="Optional FAQ Item or Clause number")
+):
+    file_path = find_document_file(file_name)
+    if not file_path:
+        raise HTTPException(status_code=404, detail=f"Document '{file_name}' not found.")
+
+    suffix = file_path.suffix.lower()
+    total_pages = 1
+    page_text = ""
+    highlight_clause = ""
+
+    try:
+        if suffix == ".pdf":
+            from pypdf import PdfReader
+            reader = PdfReader(str(file_path))
+            total_pages = len(reader.pages)
+            target_idx = max(0, min(page_number - 1, total_pages - 1))
+            page_text = reader.pages[target_idx].extract_text() or "(No readable text on this page)"
+            actual_page = target_idx + 1
+        elif suffix in [".docx", ".doc"]:
+            from docx import Document as DocxDocument
+            doc = DocxDocument(str(file_path))
+            rows_data = []
+            # In FAQ.docx, each table contains 2 rows: row 0 is Question, row 1 is Answer
+            for table in doc.tables:
+                if len(table.rows) >= 2:
+                    q = table.rows[0].cells[0].text.strip()
+                    a = table.rows[1].cells[0].text.strip()
+                    # Extract starting item number if present (e.g. "2. What are...")
+                    prefix_num = None
+                    tokens = q.split(".", 1)
+                    if tokens[0].strip().isdigit():
+                        prefix_num = int(tokens[0].strip())
+                    rows_data.append((prefix_num or (len(rows_data) + 1), q, a))
+
+            total_pages = max(1, len(rows_data))
+            actual_page = page_number or 1
+
+            if item_number is not None:
+                matched = [r for r in rows_data if r[0] == item_number]
+                if matched:
+                    num, q, a = matched[0]
+                    highlight_clause = q
+                    page_text = f"ITEM #{num}\nQUESTION:\n{q}\n\nOFFICIAL CLAUSE / PROCEDURE:\n{a}"
+                    actual_page = num
+
+            if not page_text:
+                if 1 <= actual_page <= len(rows_data):
+                    num, q, a = rows_data[actual_page - 1]
+                    highlight_clause = q
+                    page_text = f"ITEM #{num}\nQUESTION:\n{q}\n\nOFFICIAL CLAUSE / PROCEDURE:\n{a}"
+                else:
+                    all_text = [p.text for p in doc.paragraphs if p.text.strip()]
+                    page_text = "\n\n".join(all_text[:15]) or "No content extracted"
+        else:
+            actual_page = 1
+            page_text = file_path.read_text(errors="ignore")[:3000]
+
+        return {
+            "file_name": file_path.name,
+            "page_number": actual_page,
+            "total_pages": total_pages,
+            "highlight_clause": highlight_clause,
+            "page_text": page_text,
+            "download_url": f"http://127.0.0.1:8000/api/v1/documents/raw/{file_path.name}"
+        }
+    except Exception as e:
+        logger.exception("Error extracting page preview")
+        raise HTTPException(status_code=500, detail=f"Failed to extract document preview: {str(e)}")
+

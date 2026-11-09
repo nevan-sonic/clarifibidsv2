@@ -1,14 +1,21 @@
-# ClarifiBids: Grounded Intelligence & Procedural Clarification Layer for GePNIC e-Procurement
+# ClarifiBids v2: Grounded Technical Assistance & Procedural Intelligence Layer for GePNIC e-Procurement
 
-ClarifiBids is an enterprise AI technical assistance and procedural guidance platform designed specifically for the **Government e-Procurement System of India (GePNIC)** and **Central Public Procurement Portal (CPPP)**.
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-009688.svg)](https://fastapi.tiangolo.com/)
+[![React 18](https://img.shields.io/badge/React-18.x-61dafb.svg)](https://react.dev/)
+[![PostgreSQL 18](https://img.shields.io/badge/PostgreSQL-18%20%2B%20pgvector-336791.svg)](https://github.com/pgvector/pgvector)
+[![SentenceTransformers](https://img.shields.io/badge/Embeddings-BGE--Small--en--v1.5-orange.svg)](https://huggingface.co/BAAI/bge-small-en-v1.5)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-It resolves critical tender submission blockers (such as DSC token initialization errors, Java JRE version mismatches, BoQ financial template requirements, and role-specific compliance) through **Role-Based Access Control (RBAC)**, an **Adaptive Multi-Strategy Retrieval Engine (Dynamic Vector RAG, Graph RAG, and Corrective RAG / CRAG)**, and **Official Document Page Citations**.
+**ClarifiBids v2** is an enterprise AI technical assistance and procedural intelligence platform designed specifically for the **Government e-Procurement System of National Informatics Centre (GePNIC)** and the **Central Public Procurement Portal (CPPP) of India**.
+
+It resolves high-friction tender submission blockers—such as Digital Signature Certificate (DSC) USB token detection errors, Java Runtime Environment (JRE) applet security restrictions, Bill of Quantities (BoQ) multi-currency formatting, EMD fee exemption validation, and multi-party bid opening committee decryption protocols—through **strict Role-Based Access Control (RBAC)**, an **Adaptive Multi-Strategy Retrieval Engine (Dynamic Vector RAG, Graph RAG, and Corrective RAG / CRAG)**, and **Official Document Page Citations**.
 
 ---
 
 ## 🏛 System Architecture & Component Diagram
 
-Below is the modular architectural layout of ClarifiBids showing data flow across the 5 primary tiers:
+The diagram below details the 5-tier architecture of ClarifiBids and the execution flow for user inquiries:
 
 ```mermaid
 flowchart TD
@@ -18,269 +25,146 @@ flowchart TD
     classDef crag fill:#dcfce7,stroke:#15803d,stroke-width:2px,color:#0f172a;
     classDef storage fill:#f1f5f9,stroke:#334155,stroke-width:2px,color:#0f172a;
 
-    subgraph Client ["Client Layer"]
-        UI["🖥️ React 18 GePNIC Portal"]:::client
+    subgraph Client ["Client Layer (Frontend)"]
+        UI["🖥️ React 18 GePNIC Portal\n(1-Click Role Login, Citation Badges, Graph Canvas)"]:::client
     end
 
     subgraph Gateway ["API & Security Gateway"]
-        API["🛡️ FastAPI (JWT Auth + RBAC Guard)"]:::security
+        API["🛡️ FastAPI REST Gateway\n(JWT Bearer Auth + RBAC Guard)"]:::security
     end
 
     subgraph Classification ["Query Understanding Engine"]
-        CL["🧠 Intent & Depth Routing"]:::retrieval
+        CL["🧠 Semantic Intent & Depth Classifier\n(BGE-Small Centroids + Entity Extractor)"]:::retrieval
     end
 
-    subgraph Engine ["Adaptive Dynamic Retrieval"]
-        VR["🔍 Vector RAG (pgvector Dense Search)"]:::retrieval
-        GR["🕸️ Graph RAG (Ontology Multi-Hop)"]:::retrieval
+    subgraph Engine ["Adaptive Dynamic Retrieval Engine"]
+        VR["🔍 Vector RAG\n(pgvector Cosine Similarity)"]:::retrieval
+        GR["🕸️ Graph RAG\n(PostgreSQL Multi-Hop Traversal)"]:::retrieval
     end
 
-    subgraph Evaluation ["Corrective RAG (CRAG) & Generation"]
-        CRAG{"⚖️ CRAG Evaluator<br/>Relevance >= 0.65<br/>Sufficiency >= 0.70"}:::crag
-        LLM["🤖 LLM Synthesis (Groq / Local vLLM)"]:::crag
+    subgraph Evaluation ["Evaluation & Generation Layer"]
+        CRAG{"⚖️ Corrective RAG (CRAG)\nRelevance >= 0.65\nSufficiency >= 0.70"}:::crag
+        WEB["🌐 Web Search Fallback\n(Live MediaWiki REST API)"]:::crag
+        LLM["🤖 Groq LPU Inference\n(Qwen 2.5 27B / Multi-Model Fallback)"]:::crag
     end
 
-    subgraph Storage ["PostgreSQL 18 Knowledge Base"]
-        DB[("🗄️ Vector Store + Knowledge Graph + Audit Logs")]:::storage
+    subgraph Storage ["Persistent Knowledge Base"]
+        DB[("🗄️ PostgreSQL 18 + pgvector\n(Dense Vectors + Ontology Graph + Audit Logs)")]:::storage
     end
 
-    UI -->|"1. User Query & Role"| API
-    API -->|"2. Verify RBAC"| CL
+    UI -->|"1. User Query & Role Token"| API
+    API -->|"2. Check RBAC Permissions"| CL
     CL -->|"Direct Query"| VR
     CL -->|"Procedural / Multi-Hop"| GR
-    VR <-->|"Cosine Search"| DB
-    GR <-->|"Graph Traversal"| DB
+    VR <-->|"Dense Cosine Search"| DB
+    GR <-->|"Multi-Hop Relational Traversal"| DB
     VR --> CRAG
     GR --> CRAG
     CRAG -->|"Sufficient"| LLM
-    CRAG -.->|"Refine Pass"| VR
-    LLM -->|"Verified Answer + Page Citation"| UI
-    API -.->|"Audit Trail"| DB
+    CRAG -.->|"Action: REFINE"| VR
+    CRAG -->|"Action: OUT_OF_DOMAIN"| WEB --> LLM
+    LLM -->|"Verified Answer + Exact Page Citations"| UI
+    API -.->|"Asynchronous Audit Trail"| DB
 ```
 
 ---
 
-## 🔄 End-to-End Project Workflow
+## ⚡ Adaptive Dynamic Retrieval: Vector RAG, Graph RAG & CRAG
 
-The step-by-step pipeline below illustrates the execution lifecycle for an inquiry from submission to official page citation:
+ClarifiBids dynamically selects the optimal retrieval paradigm based on linguistic complexity and entity requirements:
 
-```mermaid
-flowchart TD
-    classDef step fill:#f8fafc,stroke:#0284c7,stroke-width:2px,color:#0f172a;
-    classDef decision fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#0f172a;
-    classDef success fill:#dcfce7,stroke:#16a34a,stroke-width:2px,color:#0f172a;
-
-    S1["1️⃣ User Enters Inquiry on React Portal<br/>(e.g., 'DSC token not detected during bid submission')"]:::step
-    S2["2️⃣ FastAPI Validates Bearer JWT & Role Permissions<br/>(Bidder / Foreign Bidder / Department User)"]:::step
-    S3["3️⃣ Query Understanding Engine Classifies Intent<br/>Extracts Entities (DSC, JRE) & Determines Depth Level"]:::step
-    
-    D1{"4️⃣ Depth Decision"}:::decision
-    
-    R1["🔍 Vector RAG: Dense Cosine Similarity Search<br/>(BAAI/bge-small-en-v1.5 via pgvector)"]:::step
-    R2["🕸️ Graph RAG: Multi-Hop Knowledge Traversal<br/>(Issues ➔ Procedures ➔ Conditions ➔ Chunks)"]:::step
-    
-    S4["5️⃣ Merge & Deduplicate Retrieved Candidate Evidence Chunks"]:::step
-    
-    D2{"6️⃣ CRAG Sufficiency Evaluation<br/>(Relevance >= 0.65 & Sufficiency >= 0.70)"}:::decision
-    
-    REF["🔄 Secondary Query Expansion<br/>(Re-query with Extracted Domain Entities)"]:::step
-    
-    S5["7️⃣ Role-Constrained Prompt Construction with Official Grounding Context"]:::step
-    S6["8️⃣ LLM Generates Response with GePNIC Manual Item # and Page Reference"]:::step
-    S7["9️⃣ Asynchronous Audit Log Written to PostgreSQL & Response Displayed to User"]:::success
-
-    S1 --> S2
-    S2 --> S3
-    S3 --> D1
-    D1 -->|"Direct / Definition"| R1
-    D1 -->|"Procedural / Multi-Hop"| R2
-    R1 --> S4
-    R2 --> S4
-    S4 --> D2
-    D2 -->|"Score >= 0.70"| S5
-    D2 -->|"0.40 <= Score < 0.70"| REF
-    REF --> S4
-    S5 --> S6
-    S6 --> S7
-```
-
----
-
-## ⚡ Adaptive Dynamic Retrieval: Vector RAG, Graph RAG & Corrective RAG
-
-ClarifiBids does **not** rely on a static or one-size-fits-all retrieval approach. It analyzes every query's semantic complexity and intent depth to route it dynamically across three distinct paradigms:
-
-| Retrieval Strategy | When Selected | Mechanism | Target Questions |
+| Retrieval Strategy | When Selected | Mechanism | Example Inquiries |
 | :--- | :--- | :--- | :--- |
-| **Vector RAG** | `Direct` queries & definition inquiries | Cosine similarity over 384-dimensional dense embeddings (`BAAI/bge-small-en-v1.5`) stored in PostgreSQL `pgvector`. Fast and semantically granular. | *"What is the default date and time format in GePNIC?"*, *"What is the validity period of a DSC?"* |
-| **Graph RAG** | `Procedural` & `Multi-source` / `Multi-hop` queries | Multi-hop graph traversal across the GePNIC Domain Knowledge Graph (`GraphNode` & `GraphEdge` tables). Traverses `ISSUES` $\rightarrow$ `TRIGGERS_PROCEDURE` $\rightarrow$ `REQUIRES_PREREQUISITE` $\rightarrow$ `GOVERNED_BY_CONDITION` $\rightarrow$ `SUPPORTS_EVIDENCE` to retrieve connected operational requirements. | *"What should I do if my DSC token is not detected?"*, *"Bid opener name not visible during tender creation"*, *"How to configure Java JRE for e-Procurement?"* |
-| **Corrective RAG (CRAG)** | Continuous verification layer across **all** retrievals | Self-evaluates candidate evidence across two criteria: **Relevance** (threshold $\ge 0.65$) and **Sufficiency Coverage** (threshold $\ge 0.70$). If initial evidence is insufficient (`Action: REFINE`), it performs query expansion using extracted entities; if irrelevant, it triggers safe domain-protective fallback. | Prevents hallucinations, flags out-of-domain prompts, and refines complex technical questions. |
+| **Vector RAG** | `Direct` inquiries & term definitions | Cosine similarity over 384-dimensional dense embeddings (`BAAI/bge-small-en-v1.5`) via PostgreSQL `pgvector`. Fast and semantically granular. | *"What is the default date and time format in GePNIC?"*, *"What is the validity period of a DSC?"* |
+| **Graph RAG** | `Procedural` & `Multi-source` / `Multi-hop` queries | Traverses PostgreSQL entity relationships (`ISSUES` $\rightarrow$ `TRIGGERS_PROCEDURE` $\rightarrow$ `REQUIRES_PREREQUISITE` $\rightarrow$ `GOVERNED_BY_CONDITION` $\rightarrow$ `SUPPORTS_EVIDENCE`) across 35 nodes and 33 edges. | *"What are the prerequisites and relationship steps for bid submission lifecycle and DSC token configuration?"*, *"Bid opener decryption failure and multi-party quorum"* |
+| **Corrective RAG (CRAG)** | Quality verification across all retrievals | Evaluates candidate chunks across **Relevance** ($\ge 0.65$) and **Sufficiency Coverage** ($\ge 0.70$). Triggers entity query expansion if borderline, or invokes external web search fallback if absent. | Prevents hallucinations, refines technical queries, and safeguards compliance. |
+| **Web Search Fallback** | Out-of-manual or non-procurement inquiries | Queries Wikipedia's MediaWiki and REST APIs in real time to provide verified summaries with direct source URLs. | *"What is post-quantum lattice cryptography?"* |
+| **RBAC Guard** | Cross-role privilege escalation attempts | Intercepts unauthorized inquiries at the gateway level with `ACCESS_DENIED` and helpful role-guidance instructions. | Domestic bidder attempting to query internal department opener decryption or comparative charts. |
 
 ---
 
-## 🔐 Deployment, Security & Production Readiness Roadmap
+## 🛡️ Multi-Role Access Control (RBAC) Matrix
 
-### 1. Cloud-Based Model vs. Air-Gapped / On-Premises Local LLM
-- **Current Demo Setup**: For rapid testing, demonstration, and high inference speed without demanding on-prem GPU hardware, the current demonstration runs with **Groq Cloud LPU** (`qwen/qwen3.8-27b` or `llama3-70b-8192`).
-- **Production & Air-Gapped Deployment**:
-  - In sensitive sovereign government environments (e.g., NIC data centers), the cloud API can be swapped with a **locally hosted open-source LLM** (such as **Llama 3 8B/70B Instruct**, **Mistral**, or **Qwen 2.5**) deployed on an air-gapped on-premise GPU server using **vLLM**, **Ollama**, or **TGI (Text Generation Inference)**.
-  - The backend's pluggable LLM provider interface (`app/llm/`) allows changing just one environment variable (`LLM_PROVIDER=local` or `LLM_PROVIDER=vllm`) with zero frontend or pipeline code alterations, ensuring complete data residency and zero external telemetry.
+ClarifiBids enforces Role-Based Access Control at three independent architectural levels:
 
-### 2. Enterprise Authentication: Keycloak Integration
-- **Current Setup**: Role-based access control (RBAC) with secure hashed credentials and JWT tokens stored in PostgreSQL.
-- **Production Enhancement**: The authentication gateway can be bound to **Keycloak (SSO)** via OpenID Connect (OIDC) / OAuth 2.0. This allows seamless federation with existing Indian National Informatics Centre Single Sign-On (NIC SSO / Parichay) and SAML-based enterprise identity providers.
+1. **API Gateway Level**: Restricted administration endpoints (`/api/v1/admin/*`) require a signed JWT token carrying `role: "ADMIN"`; unauthorized requests are rejected with `HTTP 403 Forbidden`.
+2. **Pipeline Pre-Check Guard**: Inquiries attempting cross-role privilege escalation (e.g., domestic bidders asking for department-internal decryption keys or foreign currency policies) are intercepted immediately with `RBAC_GUARD`.
+3. **Database Chunk-Level Filtering**: Document chunks stored in PostgreSQL are partitioned by `user_role` metadata (`GENERAL`, `Bidder`, `Foreign Bidder`, `Department User`). The retrieval query strictly filters out non-matching chunks.
 
-### 3. Secrets Management: HashiCorp Vault Integration
-- **Current Setup**: Environment-driven credential configuration (`.env`) guarded by strict `.gitignore` rules.
-- **Production Enhancement**: Database credentials, encryption keys, and internal service tokens can be dynamically rotated and fetched from **HashiCorp Vault** using AppRole or Kubernetes service account tokens, eliminating long-lived static secrets in server environments.
-
----
-
-## 🏛 Key Features
-
-- **Official Government Policy Citations**: Every answer links back directly to the official GePNIC FAQ Manual, displaying the exact Item #, verified policy badge, relevance confidence score, and **Official Document Page Number** (`Page 1`, `Page 2`, etc.).
-- **Direct Official Document Download**: In-app download button for `FAQ.docx` so bidders and procurement officers can cross-examine official documentation offline.
-- **Role-Based Access Control (RBAC)**:
-  - **Bidder**: Domestic Indian procurement workflows, Indian Certifying Authority DSCs, BoQ in INR.
-  - **Foreign Bidder**: International vendor compliance, overseas DSC procedures, multi-currency BoQ rules.
-  - **Department User**: Procuring entities, tender creators, bid opener role assignment, DSC renewal best practices.
-- **Session Thread Isolation**: Chat histories are partitioned cleanly by individual user accounts with in-app "Clear Thread" functionality.
-- **Audit-Logged Queries**: All interactions, classifications, and retrieval evaluations are securely audited to PostgreSQL.
+| User Role | Target Audience | Permitted Operational Scope | Example Guarded Queries |
+| :--- | :--- | :--- | :--- |
+| **Bidder** | Domestic Indian Vendors | Domestic bidding workflows, Class-2/Class-3 DSC tokens, BoQ in INR, MSME/NSIC fee exemptions, JRE configuration. | Restricted from department opener decryption and foreign multi-currency BoQs. |
+| **Foreign Bidder** | International Contractors | Overseas DSC procurement via Indian CAs, multi-currency BoQ submission rules, cross-border document verification. | Allowed foreign currency BoQ inquiries; restricted from internal department administration. |
+| **Department User** | Procuring Entity Officials | Tender creation, comparative evaluation charts, 2-of-2 bid opener quorum, multi-party key decryption protocols. | Access to all administrative guidelines; isolated from unauthorized bidder modifications. |
+| **ADMIN** | System Administrators | Central knowledge base management, live PDF/DOCX document upload, chunk classification, embedding generation. | Full platform oversight and management capabilities. |
 
 ---
 
-## 🗄 Database Table Structure & Relational Schema
+## 📖 Official Document Citations & Inline PDF Viewer
 
-ClarifiBids uses **PostgreSQL 18** with `pgvector` and standard relational schemas to support vector embeddings, multi-hop knowledge graph queries, RBAC access control, and complete CRAG audit logging:
+ClarifiBids ensures that every procedural response is grounded with exact official references:
+- **Exact Document & Page Citations**: Every answer provides citations with document name, item number, and page number (e.g. `[Source: FAQ.docx, Page 7, Item #25]`).
+- **Interactive Page Preview**: Clicking the citation badge opens an extracted text modal displaying the exact clause and context from the document.
+- **Direct PDF Viewer**: Clicking `Open Exact Page ↗` opens the official PDF directly in the browser navigated to the exact page (`#page=X`).
 
-```mermaid
-flowchart TD
-    classDef auth fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#0f172a,font-size:15px;
-    classDef docs fill:#dbeafe,stroke:#0284c7,stroke-width:2px,color:#0f172a,font-size:15px;
-    classDef kg fill:#ede9fe,stroke:#7c3aed,stroke-width:2px,color:#0f172a,font-size:15px;
-    classDef audit fill:#dcfce7,stroke:#16a34a,stroke-width:2px,color:#0f172a,font-size:15px;
-
-    %% Tier 1: Identity
-    AUTH_BOX["🔐 1. Identity & RBAC Domain<br/><b>users</b> (id, username, password_hash)<br/>↕ <i>assigned via</i><br/><b>user_roles</b> ↔ <b>roles</b> (Bidder, Foreign Bidder, Department User)"]:::auth
-
-    %% Tier 2: Knowledge Base
-    DOC_BOX["📚 2. Knowledge Base & Vector Store<br/><b>knowledge_sources</b> ➔ <b>documents</b> (FAQ.docx)<br/>↓ <i>chunked into</i><br/><b>document_chunks</b> (question, answer, page_number)<br/>↓ <i>embedded into</i><br/><b>document_embeddings</b> (384-dim BGE-Small Vector)"]:::docs
-
-    %% Tier 3: Domain Ontology
-    KG_BOX["🕸️ 3. GePNIC Multi-Hop Domain Ontology Graph<br/><b>graph_nodes</b> (ISSUE, PROCEDURE, CONDITION, RULE)<br/>↕ <i>interconnected via</i><br/><b>graph_edges</b> (TRIGGERS_PROCEDURE, REQUIRES_PREREQUISITE, GOVERNED_BY)"]:::kg
-
-    %% Tier 4: CRAG & Audit Trail
-    AUDIT_BOX["⚖️ 4. Corrective RAG (CRAG) & Execution Audit Trail<br/><b>queries</b> (query_text, user_role, session_id)<br/>↓<br/><b>query_classifications</b> (intent category, depth_level, extracted entities)<br/>↓<br/><b>retrieval_runs</b> (VECTOR_RAG / GRAPH_RAG) ↔ <b>retrieved_evidence</b><br/>↓<br/><b>evidence_evaluations</b> (relevance, sufficiency >= 0.70, action: CORRECT/REFINE)<br/>↓<br/><b>responses</b> (synthesized answer, latency_ms) ↔ <b>response_evidence</b>"]:::audit
-
-    AUTH_BOX -->|"initiates search"| AUDIT_BOX
-    DOC_BOX -->|"supplies vector evidence"| AUDIT_BOX
-    KG_BOX -->|"supplies procedural paths"| AUDIT_BOX
-```
-
-### Table Breakdown by Architectural Domain
-
-#### 1. Identity & RBAC Tables
-| Table Name | Primary Key | Description & Key Columns |
-| :--- | :--- | :--- |
-| `users` | `id (UUID)` | Authenticated portal accounts: `username`, `email`, `password_hash`, `is_active`, `created_at`. |
-| `roles` | `id (SERIAL)` | Standard roles: `name` (`Bidder`, `Foreign Bidder`, `Department User`, `ADMIN`), `is_business_role`, `description`. |
-| `user_roles` | `(user_id, role_id)` | Composite key junction enforcing user-to-role binding. |
-
-#### 2. Vector Store & Knowledge Chunk Tables
-| Table Name | Primary Key | Description & Key Columns |
-| :--- | :--- | :--- |
-| `knowledge_sources` | `id (SERIAL)` | Source metadata: `source_name`, `source_type` (`FAQ`, `MANUAL`), `location`, `version`. |
-| `documents` | `id (UUID)` | Document-level tracking: `source_id (FK)`, `title`, `document_type`, `file_name`, `checksum`. |
-| `document_chunks` | `id (UUID)` | Partitioned textual chunks: `document_id (FK)`, `chunk_index`, `content`, `question`, `answer`, `page_number`, `token_count`, `metadata (JSONB)` (e.g. `user_role`). |
-| `document_embeddings`| `id (UUID)` | 384-dimensional vector store: `chunk_id (FK, UNIQUE)`, `embedding (ARRAY/Vector(384))`, `embedding_model` (`BAAI/bge-small-en-v1.5`). |
-
-#### 3. Procurement Taxonomy & Classification
-| Table Name | Primary Key | Description & Key Columns |
-| :--- | :--- | :--- |
-| `query_categories` | `id (SERIAL)` | Top-level procurement domains: `name` (e.g., *Technical Assistance*, *Security Information*). |
-| `query_subcategories`| `id (SERIAL)` | Nested category divisions: `category_id (FK)`, `name` (e.g., *Digital Signature*, *Client System Prerequisites*). |
-| `query_intents` | `id (SERIAL)` | Granular operational intent: `subcategory_id (FK)`, `name` (e.g., *DSC Verification & Detection*). |
-
-#### 4. Knowledge Graph Ontology Tables
-| Table Name | Primary Key | Description & Key Columns |
-| :--- | :--- | :--- |
-| `graph_nodes` | `id (UUID)` | Entities and concepts: `node_type` (`ISSUE`, `PROCEDURE`, `CONDITION`, `RULE`, `CHUNK`), `name`, `description`, `metadata (JSONB)`. |
-| `graph_edges` | `id (UUID)` | Directed semantic relationships: `source_node_id (FK)`, `target_node_id (FK)`, `relationship_type` (`TRIGGERS_PROCEDURE`, `REQUIRES_PREREQUISITE`, `GOVERNED_BY_CONDITION`, `SUPPORTS_EVIDENCE`), `weight`. |
-
-#### 5. CRAG Execution & Interaction Audit Tables
-| Table Name | Primary Key | Description & Key Columns |
-| :--- | :--- | :--- |
-| `queries` | `id (UUID)` | Audit trail of all queries: `user_id (FK)`, `session_id`, `query_text`, `user_role`, `created_at`. |
-| `query_classifications`| `id (UUID)` | Query understanding metadata: `query_id (FK)`, `category_id (FK)`, `depth_level` (`Direct`, `Procedural`, `Multi-source`), `confidence_score`, `entities (JSONB)`. |
-| `retrieval_runs` | `id (UUID)` | Retrieval execution passes: `query_id (FK)`, `strategy` (`VECTOR_RAG`, `GRAPH_RAG`), `attempt_number`, `latency_ms`. |
-| `retrieved_evidence` | `id (UUID)` | Evidence scoring: `retrieval_run_id (FK)`, `chunk_id (FK)`, `similarity_score`, `rank`, `is_selected`. |
-| `evidence_evaluations` | `id (UUID)` | Evaluator metrics: `retrieval_run_id (FK)`, `is_relevant`, `is_sufficient`, `coverage_score`, `action_taken` (`CORRECT`, `REFINE`, `ACCESS_DENIED`), `reason`. |
-| `responses` | `id (UUID)` | Synthesized response text: `query_id (FK)`, `retrieval_run_id (FK)`, `response_text`, `model_name`, `provider`, `latency_ms`. |
-| `response_evidence` | `id (UUID)` | Grounding links connecting final response to specific evidence items. |
+---
 
 ## 🏗 Technology Stack
 
-ClarifiBids is engineered using a resilient enterprise stack spanning modern frontend frameworks, asynchronous Python services, native vector databases, and high-performance inference engines:
-
-| Layer | Technology | Version / Spec | Purpose & Architectural Role |
+| Tier | Technology | Specification | Function |
 | :--- | :--- | :--- | :--- |
-| **Frontend UI** | **React 18 & TypeScript** | React 18, Vite, Lucide Icons | National NIC/GePNIC design system, tricolor branding, role switching, official citation badges & offline document download. |
-| **Styling** | **Vanilla CSS** | Modern CSS Variables & Flex/Grid | High-fidelity government theme, zero-bloat styling, accessible contrast. |
-| **Backend API** | **FastAPI** | Python 3.11+, Pydantic v2 | High-concurrency async REST API, RBAC policy enforcement, audit logging. |
-| **Database & Vector** | **PostgreSQL 18 + `pgvector`** | PostgreSQL 18.x, pgvector 0.8+ | Unified storage for relational models, 384-dimensional dense vector embeddings, and audit trails. |
-| **Knowledge Graph** | **Relational Graph Schema** | SQLAlchemy (Asyncpg + Psycopg) | Multi-hop ontological traversal across `ISSUES`, `PROCEDURES`, `CONDITIONS`, and `CHUNKS`. |
-| **Embeddings** | **SentenceTransformers** | `BAAI/bge-small-en-v1.5` | 384-dim dense semantic embeddings computed locally on CPU/GPU. |
-| **LLM Inference** | **Groq LPU / Local vLLM** | Qwen 2.5 27B / Llama 3 | Demo: Sub-second Groq cloud inference. Prod: Air-gapped on-premise local LLM. |
-| **Auth & Security** | **JWT & RBAC** | PyJWT / Passlib (Bcrypt) | Secure hashed credentials, token session isolation, and role authorization. |
+| **Frontend** | React 18 & TypeScript | React 19, Vite 8.3, Lucide Icons | GePNIC national portal design, 1-click role login, interactive knowledge graph modal. |
+| **Styling** | Vanilla CSS | CSS Variables & Flex/Grid | High-fidelity government theme, accessible contrast, zero framework overhead. |
+| **Backend API** | FastAPI | Python 3.12, Pydantic v2 | High-throughput asynchronous REST API, RBAC guards, audit trails. |
+| **Database & Vectors** | PostgreSQL 18 + `pgvector` | PostgreSQL 18.x, pgvector 0.8+ | Relational data, 384-dimensional dense vectors, and audit history. |
+| **Knowledge Graph** | Relational Graph Schema | SQLAlchemy (Asyncpg + Psycopg) | Ontological multi-hop network connecting issues, procedures, conditions, and rules. |
+| **Embeddings** | SentenceTransformers | `BAAI/bge-small-en-v1.5` | Local CPU 384-dim dense embeddings (133 MB footprint, no API keys required). |
+| **LLM Inference** | Groq LPU / local vLLM | `qwen/qwen3.8-27b` | Sub-second generative inference with automated multi-model fallback. |
+| **Security** | PyJWT & Passlib | HMAC-SHA256 & Bcrypt | JWT session management and password hashing. |
 
 ---
 
-## 🚀 Quick Setup & Installation
+## 🚀 Quickstart: Clone & Setup
+
+ClarifiBids is engineered for **zero-touch setup**. On initial boot, FastAPI's `lifespan` automatically initializes tables, seeds roles & categories, ingests all 8 bundled official manuals, and builds the Knowledge Graph.
 
 ### Prerequisites
-1. **Node.js** (v18 or higher) and `npm`
-2. **Python** (v3.10 to v3.12 recommended)
-3. **PostgreSQL 16+** with the **`pgvector`** extension installed
-4. **Groq Cloud API Key** (Free at [console.groq.com](https://console.groq.com/keys))
+- **Python** (3.10 to 3.12)
+- **Node.js** (v18 or higher) and `npm`
+- **PostgreSQL 16+** with the **`pgvector`** extension
+- **Groq API Key** (Free from [console.groq.com](https://console.groq.com/keys))
 
 ---
 
 ### Step 1: Clone the Repository
 
 ```bash
-git clone https://github.com/normalnevan1/clarifibids.git
-cd clarifibids
+git clone https://github.com/nevan-sonic/clarifibidsv2.git
+cd clarifibidsv2
 ```
 
 ---
 
-### Step 2: Database Setup (PostgreSQL + pgvector)
+### Step 2: Database Initialization
 
-1. Open `psql` or pgAdmin as your PostgreSQL superuser (e.g. `postgres`):
+1. Open `psql` or pgAdmin as your PostgreSQL superuser (`postgres`):
    ```sql
    CREATE DATABASE clarifibids_db;
    \c clarifibids_db
    CREATE EXTENSION IF NOT EXISTS vector;
    CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
    ```
-2. *(Windows users: If pgvector is not yet installed on your Postgres, copy the pgvector DLL, control, and SQL files into your PostgreSQL directory or run the included `install_pgvector.bat`)*.
-
-3. Seed initial database roles and query categories:
-   ```bash
-   cd backend
-   python seed_db.py
-   ```
 
 ---
 
-### Step 3: Backend Setup & Configuration
+### Step 3: Backend Setup & Auto-Ingestion
 
-1. Navigate to the `backend` directory:
+1. Navigate to the `backend` folder:
    ```bash
    cd backend
    ```
 
-2. Create a virtual environment and activate it:
+2. Create and activate a Python virtual environment:
    - **Windows**:
      ```bash
      python -m venv .venv
@@ -292,18 +176,20 @@ cd clarifibids
      source .venv/bin/activate
      ```
 
-3. Install required Python packages:
+3. Install backend dependencies:
    ```bash
    pip install -r requirements.txt
    ```
 
-4. Configure Environment Variables:
+4. Configure environment variables:
    - Copy `.env.example` to `.env`:
      ```bash
-     cp .env.example .env     # Linux / Mac
-     copy .env.example .env   # Windows
+     # Windows:
+     copy .env.example .env
+     # Linux / macOS:
+     cp .env.example .env
      ```
-   - Edit `backend/.env` with your actual credentials:
+   - Edit `backend/.env` with your PostgreSQL password and Groq API key:
      ```env
      DATABASE_URL=postgresql+asyncpg://postgres:YOUR_PASSWORD@127.0.0.1:5432/clarifibids_db
      SYNC_DATABASE_URL=postgresql+psycopg://postgres:YOUR_PASSWORD@127.0.0.1:5432/clarifibids_db
@@ -311,27 +197,27 @@ cd clarifibids
      GROQ_MODEL=qwen/qwen3.8-27b
      ```
 
-5. Ingest Knowledge Base and Seed Knowledge Graph:
-   - Ingest `FAQ.docx` into PostgreSQL with 384-dimensional vector embeddings and page markers:
-     ```bash
-     python ingest_faq.py
-     ```
-   - Seed the GePNIC Domain Knowledge Graph nodes, edges, and procedural associations:
-     ```bash
-     python seed_graph.py
-     ```
-
-6. Start the FastAPI Backend Server:
+5. Launch the FastAPI server:
    ```bash
    python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
    ```
-   FastAPI will start at `http://127.0.0.1:8000`. You can inspect the interactive docs at `http://127.0.0.1:8000/docs`.
+
+> 🌟 **Zero-Touch Auto-Ingestion**:
+> When FastAPI boots up for the first time, `ensure_database_initialized()` automatically:
+> - Creates all schema tables in PostgreSQL.
+> - Seeds initial organizational roles (`Bidder`, `Foreign Bidder`, `Department User`, `ADMIN`) and query categories.
+> - Parses, chunks, and generates 384-d dense embeddings for **all 8 bundled official documents** (`FAQ.docx`, `FAQ.pdf`, `ChecklistForBidders.pdf`, `ChecklistForDepartmentUsers.pdf`, `eProcSupport-L1-SoP...pdf`, `Bid submission with NDA.pdf`, `Bid submission_2 Stage Bidding.pdf`, `Bidder user manual for QCBS flow.pdf`, and `Bidder_Enrollment_Manual.pdf`).
+> - Seeds and links the complete **35-node, 33-edge Knowledge Graph**.
+> 
+> **No manual ingestion scripts are needed!**
+
+The backend API will be available at `http://127.0.0.1:8000`. Interactive Swagger documentation is at `http://127.0.0.1:8000/docs`.
 
 ---
 
 ### Step 4: Frontend Setup
 
-1. Open a new terminal window and navigate to `frontend`:
+1. Open a new terminal and navigate to `frontend`:
    ```bash
    cd frontend
    ```
@@ -346,29 +232,49 @@ cd clarifibids
    npm run dev
    ```
 
-4. Open your browser and navigate to:
-   ```
-   http://localhost:5173
-   ```
+4. Open your browser at **`http://localhost:5173`**.
 
 ---
 
-## 📖 Using ClarifiBids
+## 📊 Empirical Evaluation & Benchmark Results
 
-1. **Register / Login**:
-   - Create an account by choosing a username, email, password (min 4 characters), and your role (**Bidder**, **Foreign Bidder**, or **Department User**).
-2. **Explore Adaptive RAG**:
-   - Click any role-specific starter query or type natural language questions.
-   - For direct questions, **Vector RAG** executes immediate semantic lookup.
-   - For procedural or issue-driven queries (e.g., token detection failures), **Graph RAG** traverses procedural prerequisites.
-   - **Corrective RAG** continuously validates sufficiency before generation.
-3. **Verify Official Document Pages**:
-   - Check the citation card showing the GePNIC Item # and Document Page Number.
-   - Click **Download Official FAQ** to inspect the source manual.
-4. **Isolate Session Threads**:
-   - Click **Clear Thread** anytime to start a fresh workspace for your active role.
+The system was benchmarked across 30 labelled evaluation queries representing 6 distinct procurement domains across Direct, Indirect, and Multi-hop depth categories ($K=4$):
+
+### 1. Retrieval Strategy Performance Comparison
+
+| Query Group | Evaluated Approach | Precision@K | Recall@K | MRR | Faithfulness | Latency (ms) | Notes |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| **Direct Queries** | **Vector RAG** | **0.150** | 0.200 | 0.200 | 0.200 | **119.29** | Fast direct clause lookup; optimal baseline |
+| | Graph RAG | 0.125 | **0.350** | **0.258** | **0.350** | 131.80 | Broad contextual coverage |
+| **Indirect Queries** | Vector RAG | 0.150 | 0.125 | 0.250 | 0.125 | **47.71** | Single-step retrieval |
+| | **Graph RAG** | **0.150** | **0.258** | **0.300** | **0.258** | 121.72 | **+106% Recall** over Vector RAG |
+| **Multi-hop Queries** | Vector RAG | 0.050 | 0.020 | 0.100 | 0.020 | **52.65** | Fails on disconnected conditions |
+| | **Graph RAG** | **0.200** | **0.180** | **0.275** | **0.180** | 108.13 | **+800% Recall (9x gain)** via typed graph edges |
+
+### 2. Embedding Model Comparison ($K=5$)
+
+| Embedding Method | Type / Dimension | Recall@5 | MRR | Latency (ms) | Characteristics |
+| :--- | :--- | :---: | :---: | :---: | :--- |
+| **BAAI/bge-small-en-v1.5 (Selected)** | Dense, 384 | **0.2567** | 0.1878 | 33.95 | Highest semantic domain recall; local CPU execution |
+| **all-MiniLM-L6-v2** | Dense, 384 | 0.1889 | 0.1972 | 18.88 | Fast CPU latency, lower procurement terminology recall |
+| **BM25** | Sparse Lexical | 0.2039 | 0.1906 | **0.52** | Sub-millisecond exact token matching for error codes |
+| **Hybrid (BM25 + BGE RRF)** | Hybrid Fusion | 0.2150 | **0.1978** | 31.50 | Highest overall MRR by combining dense vectors with exact tokens |
 
 ---
 
-## 🔒 Security & Privacy Notice
-Never commit real API keys or database passwords to version control. The repository `.gitignore` ensures that `.env` and virtual environments remain strictly local.
+## 🔒 Security, Production Readiness & Enterprise Roadmap
+
+1. **Air-Gapped & Sovereign Data Center Deployment**:
+   - For sovereign government environments (e.g. NIC / CERT-In data centers), the cloud LLM can be replaced with an **on-premises open-source LLM** (such as **Qwen 2.5 14B/32B** or **Llama 3.3 70B**) running locally via **vLLM** or **Ollama**.
+   - Simply update `LLM_PROVIDER=vllm` in `.env` with zero frontend or pipeline modifications.
+2. **Keycloak / NIC Parichay SSO Integration**:
+   - The FastAPI authentication layer supports standard OIDC/OAuth2 protocols for federation with government Single Sign-On (NIC SSO / Parichay).
+3. **Dynamic Secrets Management**:
+   - For enterprise Kubernetes deployments, secrets can be fetched dynamically from **HashiCorp Vault**, eliminating static secrets.
+
+---
+
+## 📄 License & Attribution
+
+This project is developed under the **MIT License**.  
+All official GePNIC manuals, guidelines, and FAQs are property of the **National Informatics Centre (NIC), Ministry of Electronics & Information Technology, Government of India**.

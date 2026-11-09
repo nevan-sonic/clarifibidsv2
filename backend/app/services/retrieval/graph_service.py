@@ -130,7 +130,7 @@ class GraphService:
             for ch, emb_list in all_chunks:
                 meta = ch.metadata_ or {}
                 item_num = str(meta.get("item_number", ch.chunk_index))
-                chunk_role = meta.get("applicable_role", "Bidder")
+                chunk_role = meta.get("user_role", meta.get("applicable_role", "Bidder"))
 
                 # Role enforcement on graph chunks: GENERAL accessible to all, role-specific restricted
                 is_general = chunk_role in ["GENERAL", "ALL", "Universal"]

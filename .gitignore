@@ -37,3 +37,10 @@ Thumbs.db
 # Scratch and staging directories
 pgvector_staging/
 folder/
+
+# Runtime uploads & benchmark dumps
+backend/storage/documents/*
+!backend/storage/documents/.gitkeep
+*benchmark_results.json
+genuine_rag_strategy_results.json
+*.tmp

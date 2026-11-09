@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useLayoutEffect, useCallback } from 'react';
 import { 
   ShieldCheck, 
   Send, 
@@ -8,7 +8,6 @@ import {
   LogOut, 
   FileCheck, 
   AlertTriangle, 
-  Download,
   Trash2,
   Upload,
   FileText,
@@ -53,6 +52,7 @@ interface ChatMessage {
 
 const ROLE_QUERIES: Record<string, string[]> = {
   'Bidder': [
+    "What are the prerequisites, conditions, and relationship steps for bid submission lifecycle and DSC token configuration?",
     "What are the requirements of the client machine to access the e-Procurement site ?",
     "What is the default Date and Time format used in the System ?",
     "Can I access my eProcurement Account from a different client system ?",
@@ -65,12 +65,425 @@ const ROLE_QUERIES: Record<string, string[]> = {
     "Can International firm upload proposals on e-procurement portal with DSC ?"
   ],
   'Department User': [
+    "Explain the multi-hop relationship and required quorum between Bid Opener Decryption Failure and Multi-party Bid Decryption Procedure",
     "What is the best practice in renewal of DSC pertaining to Department User ?",
     "What to do if Bid Opener name is not visible in bid openers list during tender creation ?",
-    "Who can assign or deassign the role of bid opener and what is the procedure ?",
-    "In the case of a 2 of 2 Bid openers, one opener DSC key is lost, what should be done ?"
+    "Who can assign or deassign the role of bid opener and what is the procedure ?"
   ]
 };
+
+
+// ─── Dynamic Knowledge Graph Modal ───────────────────────────────────────────
+interface GraphNode { id: string; name: string; node_type: string; description?: string; }
+interface GraphEdge { source: string; target: string; relationship_type: string; }
+interface GraphData { total_nodes?: number; total_edges?: number; nodes: GraphNode[]; edges: GraphEdge[]; }
+
+const REL_COLOR: Record<string, string> = {
+  TRIGGERS_PROCEDURE: '#ef4444',
+  REQUIRES_PREREQUISITE: '#38bdf8',
+  GOVERNED_BY_CONDITION: '#f59e0b',
+  SUPPORTS_EVIDENCE: '#10b981',
+};
+
+function getRelColor(rel: string): string {
+  for (const [key, color] of Object.entries(REL_COLOR)) {
+    if (rel.includes(key) || rel.includes(key.split('_')[0])) return color;
+  }
+  return '#94a3b8';
+}
+
+function getNodeColor(type: string): string {
+  if (type === 'ISSUE') return '#dc2626';
+  if (type === 'PROCEDURE') return '#0284c7';
+  if (type === 'RULE') return '#10b981';
+  return '#f59e0b'; // CONDITION
+}
+
+function getNodeLetter(type: string): string {
+  if (type === 'ISSUE') return 'I';
+  if (type === 'PROCEDURE') return 'P';
+  if (type === 'RULE') return 'R';
+  return 'C';
+}
+
+interface ArrowLine {
+  x1: number; y1: number; x2: number; y2: number;
+  color: string; dashed: boolean; rel: string;
+}
+
+function KnowledgeGraphModal({ graphData, loadingGraph, selectedGraphNode, setSelectedGraphNode, onClose }: {
+  graphData: GraphData | null;
+  loadingGraph: boolean;
+  selectedGraphNode: GraphNode | null;
+  setSelectedGraphNode: (n: GraphNode) => void;
+  onClose: () => void;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const nodeRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const [arrows, setArrows] = useState<ArrowLine[]>([]);
+
+  // Groups for 3-column layout
+  const issueNodes = graphData?.nodes.filter(n => n.node_type === 'ISSUE').slice(0, 6) ?? [];
+  const procedureNodes = graphData?.nodes.filter(n => n.node_type === 'PROCEDURE').slice(0, 6) ?? [];
+  const conditionNodes = graphData?.nodes.filter(n => n.node_type === 'CONDITION' || n.node_type === 'RULE').slice(0, 6) ?? [];
+
+  const setNodeRef = useCallback((id: string, el: HTMLDivElement | null) => {
+    if (el) nodeRefs.current.set(id, el);
+    else nodeRefs.current.delete(id);
+  }, []);
+
+  // Recompute arrows after nodes render
+  useLayoutEffect(() => {
+    if (!graphData || !containerRef.current) return;
+    const container = containerRef.current;
+    const rect = container.getBoundingClientRect();
+
+    const newArrows: ArrowLine[] = [];
+
+    for (const edge of graphData.edges) {
+      const srcEl = nodeRefs.current.get(edge.source);
+      const tgtEl = nodeRefs.current.get(edge.target);
+      if (!srcEl || !tgtEl) continue;
+
+      const srcRect = srcEl.getBoundingClientRect();
+      const tgtRect = tgtEl.getBoundingClientRect();
+
+      // Relative to the SVG container
+      const x1 = srcRect.right - rect.left;
+      const y1 = srcRect.top + srcRect.height / 2 - rect.top;
+      const x2 = tgtRect.left - rect.left;
+      const y2 = tgtRect.top + tgtRect.height / 2 - rect.top;
+
+      // If same column (vertical) use center-to-center vertical
+      const srcCx = srcRect.left + srcRect.width / 2 - rect.left;
+      const tgtCx = tgtRect.left + tgtRect.width / 2 - rect.left;
+      const isSameCol = Math.abs(srcCx - tgtCx) < 80;
+
+      newArrows.push({
+        x1: isSameCol ? srcRect.left + srcRect.width / 2 - rect.left : x1,
+        y1: isSameCol ? srcRect.bottom - rect.top : y1,
+        x2: isSameCol ? tgtRect.left + tgtRect.width / 2 - rect.left : x2,
+        y2: isSameCol ? tgtRect.top - rect.top : y2,
+        color: getRelColor(edge.relationship_type),
+        dashed: edge.relationship_type.includes('PREREQUISITE') || edge.relationship_type.includes('EVIDENCE'),
+        rel: edge.relationship_type,
+      });
+    }
+
+    setArrows(newArrows);
+  }, [graphData, selectedGraphNode]);
+
+  // Re-measure on resize
+  useLayoutEffect(() => {
+    const handleResize = () => {
+      if (!graphData || !containerRef.current) return;
+      const container = containerRef.current;
+      const rect = container.getBoundingClientRect();
+      const newArrows: ArrowLine[] = [];
+      for (const edge of graphData.edges) {
+        const srcEl = nodeRefs.current.get(edge.source);
+        const tgtEl = nodeRefs.current.get(edge.target);
+        if (!srcEl || !tgtEl) continue;
+        const srcRect = srcEl.getBoundingClientRect();
+        const tgtRect = tgtEl.getBoundingClientRect();
+        const x1 = srcRect.right - rect.left;
+        const y1 = srcRect.top + srcRect.height / 2 - rect.top;
+        const x2 = tgtRect.left - rect.left;
+        const y2 = tgtRect.top + tgtRect.height / 2 - rect.top;
+        const srcCx = srcRect.left + srcRect.width / 2 - rect.left;
+        const tgtCx = tgtRect.left + tgtRect.width / 2 - rect.left;
+        const isSameCol = Math.abs(srcCx - tgtCx) < 80;
+        newArrows.push({
+          x1: isSameCol ? srcRect.left + srcRect.width / 2 - rect.left : x1,
+          y1: isSameCol ? srcRect.bottom - rect.top : y1,
+          x2: isSameCol ? tgtRect.left + tgtRect.width / 2 - rect.left : x2,
+          y2: isSameCol ? tgtRect.top - rect.top : y2,
+          color: getRelColor(edge.relationship_type),
+          dashed: edge.relationship_type.includes('PREREQUISITE') || edge.relationship_type.includes('EVIDENCE'),
+          rel: edge.relationship_type,
+        });
+      }
+      setArrows(newArrows);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [graphData]);
+
+  function NodeCard({ node, col }: { node: GraphNode; col: number }) {
+    const isSelected = selectedGraphNode?.id === node.id;
+    const color = getNodeColor(node.node_type);
+    const letter = getNodeLetter(node.node_type);
+    const borderStyle = node.name.includes('Lifecycle') ? 'dashed' : 'solid';
+    const selBg = col === 0 ? '#1e1b4b' : col === 1 ? '#0c4a6e' : node.node_type === 'RULE' ? '#064e3b' : '#78350f';
+
+    return (
+      <div
+        ref={(el) => setNodeRef(node.id, el)}
+        onClick={() => setSelectedGraphNode(node)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: '0.65rem',
+          padding: '0.65rem 0.85rem', borderRadius: '8px',
+          background: isSelected ? selBg : '#0f172a',
+          border: `2px ${borderStyle} ${isSelected ? color : '#334155'}`,
+          cursor: 'pointer',
+          boxShadow: isSelected ? `0 0 20px ${color}99` : '0 2px 4px rgba(0,0,0,0.4)',
+          transition: 'all 0.2s ease', minHeight: '52px', position: 'relative', zIndex: 2,
+        }}
+      >
+        <div style={{
+          width: '34px', height: '34px', borderRadius: '50%', background: color,
+          border: `2px solid ${color}44`, color: '#fff', display: 'flex',
+          alignItems: 'center', justifyContent: 'center', fontWeight: 800,
+          fontSize: '0.85rem', flexShrink: 0,
+        }}>
+          {letter}
+        </div>
+        <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#f8fafc', lineHeight: 1.3 }}>
+          {node.name.length > 32 ? node.name.slice(0, 32) + '...' : node.name}
+        </span>
+      </div>
+    );
+  }
+
+  const outgoing = graphData?.edges.filter(e => e.source === selectedGraphNode?.id) ?? [];
+  const incoming = graphData?.edges.filter(e => e.target === selectedGraphNode?.id) ?? [];
+
+  return (
+    <div
+      style={{
+        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+        backgroundColor: 'rgba(5, 10, 24, 0.90)', backdropFilter: 'blur(8px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        zIndex: 9999, padding: '1rem',
+      }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div style={{
+        maxWidth: '1300px', width: '97%', height: '93vh',
+        display: 'flex', flexDirection: 'column',
+        backgroundColor: '#080f1e', borderRadius: '16px',
+        boxShadow: '0 25px 60px rgba(0,0,0,0.85), 0 0 0 1px rgba(255,255,255,0.08)',
+        border: '1px solid #1e293b', padding: '1.25rem 1.5rem',
+        overflow: 'hidden', color: '#f8fafc',
+      }}>
+
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '0.85rem', marginBottom: '1rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <div style={{ background: '#0284c7', color: '#fff', borderRadius: '8px', padding: '0.45rem', display: 'flex' }}>
+              <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
+            </div>
+            <div>
+              <h3 style={{ margin: 0, fontSize: '1.15rem', color: '#f8fafc', fontWeight: 800, letterSpacing: '-0.01em' }}>
+                ClarifiBids Knowledge Graph &bull; Graph RAG Flow
+              </h3>
+              <p style={{ margin: '0.15rem 0 0', fontSize: '0.78rem', color: '#94a3b8' }}>
+                PostgreSQL 18 Entity-Relationship Network &bull; Multi-hop traversal &bull; {graphData?.total_nodes ?? 0} nodes · {graphData?.total_edges ?? 0} edges live
+              </p>
+            </div>
+          </div>
+          <button type="button" onClick={onClose} style={{
+            background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+            borderRadius: '6px', cursor: 'pointer', color: '#94a3b8', padding: '0.4rem',
+            display: 'flex', alignItems: 'center',
+          }}>
+            <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+
+        {loadingGraph ? (
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>
+            <div className="spinner" style={{ width: '32px', height: '32px', borderColor: '#38bdf8', borderTopColor: 'transparent', marginBottom: '1rem' }}></div>
+            <p style={{ fontSize: '0.95rem', fontWeight: 600 }}>Loading Knowledge Graph from PostgreSQL 18...</p>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '1.25rem', flex: 1, minHeight: 0 }}>
+
+            {/* Graph Canvas */}
+            <div
+              ref={containerRef}
+              style={{
+                display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.75rem',
+                backgroundColor: '#070d19', borderRadius: '12px',
+                padding: '1.25rem 1.5rem', border: '1px solid rgba(255,255,255,0.08)',
+                overflowY: 'auto', position: 'relative', alignContent: 'start',
+              }}
+            >
+              {/* Dynamic SVG Arrow Overlay */}
+              <svg style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 1, overflow: 'visible' }}>
+                <defs>
+                  {Object.entries(REL_COLOR).map(([rel, color]) => (
+                    <marker key={rel} id={`arrow-${rel}`} viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                      <path d="M 0 1 L 10 5 L 0 9 z" fill={color} />
+                    </marker>
+                  ))}
+                  <marker id="arrow-default" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                    <path d="M 0 1 L 10 5 L 0 9 z" fill="#94a3b8" />
+                  </marker>
+                </defs>
+
+                {arrows.map((a, i) => {
+                  const relKey = Object.keys(REL_COLOR).find(k => a.rel.includes(k)) ?? 'default';
+                  const dx = a.x2 - a.x1;
+                  const dy = a.y2 - a.y1;
+                  const isSameCol = Math.abs(dx) < 80;
+                  // Cubic bezier: horizontal cross-column arrows curve outward, vertical same-col arrows are straight
+                  const cp1x = isSameCol ? a.x1 : a.x1 + dx * 0.4;
+                  const cp1y = isSameCol ? a.y1 + dy * 0.5 : a.y1;
+                  const cp2x = isSameCol ? a.x2 : a.x2 - dx * 0.4;
+                  const cp2y = isSameCol ? a.y2 - dy * 0.5 : a.y2;
+                  const d = isSameCol
+                    ? `M ${a.x1} ${a.y1} L ${a.x2} ${a.y2}`
+                    : `M ${a.x1} ${a.y1} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${a.x2} ${a.y2}`;
+
+                  // Highlight arrows connected to selected node
+                  const isHighlighted = selectedGraphNode &&
+                    graphData?.edges[i] &&
+                    (graphData.edges[i]?.source === selectedGraphNode.id || graphData.edges[i]?.target === selectedGraphNode.id);
+
+                  return (
+                    <path
+                      key={i}
+                      d={d}
+                      stroke={a.color}
+                      strokeWidth={isHighlighted ? 3 : 2}
+                      strokeDasharray={a.dashed ? '5,4' : undefined}
+                      fill="none"
+                      markerEnd={`url(#arrow-${relKey})`}
+                      opacity={selectedGraphNode ? (isHighlighted ? 1 : 0.25) : 0.75}
+                      style={{ transition: 'opacity 0.2s ease, stroke-width 0.2s ease' }}
+                    />
+                  );
+                })}
+              </svg>
+
+              {/* Column 1 Header + Issues */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem', zIndex: 2 }}>
+                <div style={{
+                  padding: '0.4rem 0.75rem', borderRadius: '6px',
+                  background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.35)',
+                  color: '#fca5a5', fontSize: '0.73rem', fontWeight: 800,
+                  textAlign: 'center', textTransform: 'uppercase', letterSpacing: '0.05em',
+                }}>1. Issues / Blockers</div>
+                {issueNodes.map(n => <NodeCard key={n.id} node={n} col={0} />)}
+              </div>
+
+              {/* Column 2 Header + Procedures */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem', zIndex: 2 }}>
+                <div style={{
+                  padding: '0.4rem 0.75rem', borderRadius: '6px',
+                  background: 'rgba(2,132,199,0.18)', border: '1px solid rgba(2,132,199,0.4)',
+                  color: '#7dd3fc', fontSize: '0.73rem', fontWeight: 800,
+                  textAlign: 'center', textTransform: 'uppercase', letterSpacing: '0.05em',
+                }}>2. Procedures / Actions</div>
+                {procedureNodes.map(n => <NodeCard key={n.id} node={n} col={1} />)}
+              </div>
+
+              {/* Column 3 Header + Conditions */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem', zIndex: 2 }}>
+                <div style={{
+                  padding: '0.4rem 0.75rem', borderRadius: '6px',
+                  background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.35)',
+                  color: '#fcd34d', fontSize: '0.73rem', fontWeight: 800,
+                  textAlign: 'center', textTransform: 'uppercase', letterSpacing: '0.05em',
+                }}>3. Conditions &amp; Policies</div>
+                {conditionNodes.map(n => <NodeCard key={n.id} node={n} col={2} />)}
+              </div>
+            </div>
+
+            {/* Right Panel: Node Inspector */}
+            <div style={{
+              backgroundColor: 'rgba(15,23,42,0.9)', borderRadius: '12px', padding: '1.25rem',
+              border: '1px solid rgba(255,255,255,0.08)', display: 'flex',
+              flexDirection: 'column', overflowY: 'auto', gap: '0',
+            }}>
+              {selectedGraphNode ? (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                    <span style={{
+                      fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '4px',
+                      fontWeight: 800, textTransform: 'uppercase',
+                      background: getNodeColor(selectedGraphNode.node_type), color: '#fff',
+                    }}>{selectedGraphNode.node_type}</span>
+                    <span style={{ fontSize: '0.72rem', color: '#64748b' }}>ID: {selectedGraphNode.id.substring(0, 8)}...</span>
+                  </div>
+                  <h3 style={{ margin: '0 0 0.5rem', fontSize: '1.05rem', color: '#f8fafc', fontWeight: 800, lineHeight: 1.35 }}>
+                    {selectedGraphNode.name}
+                  </h3>
+                  <p style={{ margin: '0 0 1rem', fontSize: '0.8rem', color: '#94a3b8', lineHeight: 1.5 }}>
+                    {selectedGraphNode.description || 'Official entity registered in GePNIC knowledge base graph traversal schema.'}
+                  </p>
+
+                  {/* Outgoing */}
+                  <div style={{ marginBottom: '1rem' }}>
+                    <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#38bdf8', fontWeight: 800, marginBottom: '0.4rem' }}>
+                      Outgoing Multi-Hop Chains ({outgoing.length})
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                      {outgoing.map((e, idx) => {
+                        const target = graphData?.nodes.find(n => n.id === e.target);
+                        const c = getRelColor(e.relationship_type);
+                        return (
+                          <div key={idx} onClick={() => target && setSelectedGraphNode(target)}
+                            style={{ background: 'rgba(30,41,59,0.6)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '6px', padding: '0.5rem 0.75rem', cursor: 'pointer' }}
+                            onMouseEnter={el => el.currentTarget.style.borderColor = c}
+                            onMouseLeave={el => el.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'}
+                          >
+                            <div style={{ fontSize: '0.68rem', fontWeight: 800, color: c, textTransform: 'uppercase', marginBottom: '0.1rem' }}>{e.relationship_type}</div>
+                            <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#f8fafc' }}>{target?.name ?? e.target} &rarr;</div>
+                          </div>
+                        );
+                      })}
+                      {outgoing.length === 0 && <div style={{ fontSize: '0.75rem', color: '#64748b', fontStyle: 'italic' }}>No outgoing relationships from this node.</div>}
+                    </div>
+                  </div>
+
+                  {/* Incoming */}
+                  <div style={{ marginBottom: '1rem' }}>
+                    <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#a855f7', fontWeight: 800, marginBottom: '0.4rem' }}>
+                      Triggered By / Prerequisites ({incoming.length})
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                      {incoming.map((e, idx) => {
+                        const source = graphData?.nodes.find(n => n.id === e.source);
+                        return (
+                          <div key={idx} onClick={() => source && setSelectedGraphNode(source)}
+                            style={{ background: 'rgba(30,41,59,0.6)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '6px', padding: '0.5rem 0.75rem', cursor: 'pointer' }}
+                            onMouseEnter={el => el.currentTarget.style.borderColor = '#a855f7'}
+                            onMouseLeave={el => el.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'}
+                          >
+                            <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#c084fc', textTransform: 'uppercase', marginBottom: '0.1rem' }}>{e.relationship_type}</div>
+                            <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#f8fafc' }}>&larr; {source?.name ?? e.source}</div>
+                          </div>
+                        );
+                      })}
+                      {incoming.length === 0 && <div style={{ fontSize: '0.75rem', color: '#64748b', fontStyle: 'italic' }}>Root entity (no incoming triggers).</div>}
+                    </div>
+                  </div>
+
+                  {/* Legend */}
+                  <div style={{ marginTop: 'auto', paddingTop: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                    <div style={{ fontSize: '0.7rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: '0.4rem' }}>Relationship Key</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.72rem' }}>
+                      {Object.entries(REL_COLOR).map(([rel, color]) => (
+                        <span key={rel} style={{ color }}>&bull; {rel.replace(/_/g, ' ')}</span>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div style={{ textAlign: 'center', margin: 'auto', color: '#64748b', fontSize: '0.85rem' }}>
+                  Click any node in the canvas to inspect its multi-hop Graph RAG chains.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<{ id: string; username: string; email: string; role: string } | null>(() => {
@@ -80,10 +493,6 @@ export default function App() {
   const [authToken, setAuthToken] = useState<string | null>(() => localStorage.getItem('clarifibids_token'));
   
   // Auth Form State
-  const [authTab, setAuthTab] = useState<'login' | 'register'>('login');
-  const [authUsername, setAuthUsername] = useState('');
-  const [authEmail, setAuthEmail] = useState('');
-  const [authPassword, setAuthPassword] = useState('');
   const [authRole, setAuthRole] = useState('Bidder');
   const [authError, setAuthError] = useState('');
   const [authSubmitting, setAuthSubmitting] = useState(false);
@@ -100,6 +509,95 @@ export default function App() {
   const [uploadSubmitting, setUploadSubmitting] = useState(false);
   const [uploadResult, setUploadResult] = useState<any>(null);
   const [uploadError, setUploadError] = useState('');
+
+  // Interactive Document Page Preview State
+  const [showGraphModal, setShowGraphModal] = useState(false);
+  const [graphData, setGraphData] = useState<{ total_nodes?: number; total_edges?: number; nodes: any[]; edges: any[] } | null>(null);
+  const [loadingGraph, setLoadingGraph] = useState(false);
+  const [selectedGraphNode, setSelectedGraphNode] = useState<any>(null);
+
+  const fetchGraphData = async () => {
+    setLoadingGraph(true);
+    setShowGraphModal(true);
+    try {
+      const res = await fetch('http://127.0.0.1:8000/api/v1/graph/visualize');
+      if (res.ok) {
+        const data = await res.json();
+        setGraphData(data);
+        const defaultProc = data.nodes.find((n: any) => n.name.includes('Bid Submission Lifecycle')) || data.nodes[0];
+        setSelectedGraphNode(defaultProc);
+      }
+    } catch (e) {
+      console.error('Failed to load graph data', e);
+    } finally {
+      setLoadingGraph(false);
+    }
+  };
+
+  const [previewModal, setPreviewModal] = useState<{
+    isOpen: boolean;
+    fileName: string;
+    pageNumber: number;
+    totalPages: number;
+    highlightClause: string;
+    pageText: string;
+    downloadUrl: string;
+    loading: boolean;
+    error: string | null;
+  }>({
+    isOpen: false,
+    fileName: '',
+    pageNumber: 1,
+    totalPages: 1,
+    highlightClause: '',
+    pageText: '',
+    downloadUrl: '',
+    loading: false,
+    error: null,
+  });
+
+  const openDocumentPreview = async (fileName: string, pageNumber: number = 1, itemNumber?: number) => {
+    setPreviewModal({
+      isOpen: true,
+      fileName,
+      pageNumber,
+      totalPages: 1,
+      highlightClause: '',
+      pageText: '',
+      downloadUrl: `http://127.0.0.1:8000/api/v1/documents/raw/${fileName}`,
+      loading: true,
+      error: null,
+    });
+
+    try {
+      let url = `http://127.0.0.1:8000/api/v1/documents/preview?file_name=${encodeURIComponent(fileName)}&page_number=${pageNumber}`;
+      if (itemNumber !== undefined && itemNumber !== null) {
+        url += `&item_number=${itemNumber}`;
+      }
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error(`Failed to load document preview (HTTP ${res.status})`);
+      }
+      const data = await res.json();
+      setPreviewModal({
+        isOpen: true,
+        fileName: data.file_name,
+        pageNumber: data.page_number,
+        totalPages: data.total_pages,
+        highlightClause: data.highlight_clause || '',
+        pageText: data.page_text || '',
+        downloadUrl: data.download_url,
+        loading: false,
+        error: null,
+      });
+    } catch (err: any) {
+      setPreviewModal(prev => ({
+        ...prev,
+        loading: false,
+        error: err.message || 'Error loading preview',
+      }));
+    }
+  };
 
   const fetchAdminDocs = async () => {
     const token = authToken || localStorage.getItem('clarifibids_token');
@@ -216,53 +714,31 @@ export default function App() {
     setMessages([]);
   };
 
-  const handleAuthSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleQuickLogin = async (selectedRole: string) => {
     setAuthError('');
     setAuthSubmitting(true);
-
     try {
-      const endpoint = authTab === 'login' ? '/api/v1/auth/login' : '/api/v1/auth/register';
-      const payload = authTab === 'login' 
-        ? { username: authUsername, password: authPassword }
-        : { username: authUsername, email: authEmail, password: authPassword, role: authRole };
-
-      const res = await fetch(`http://localhost:8000${endpoint}`, {
+      const res = await fetch('http://localhost:8000/api/v1/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({ role: selectedRole })
       });
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        let message = 'Authentication failed';
-        if (Array.isArray(err.detail)) {
-          message = err.detail.map((d: any) => d.msg || JSON.stringify(d)).join('; ');
-        } else if (typeof err.detail === 'string') {
-          message = err.detail;
-        } else if (err.detail && typeof err.detail === 'object') {
-          message = err.detail.msg || JSON.stringify(err.detail);
-        } else if (err.message) {
-          message = err.message;
-        }
-        throw new Error(message);
+        throw new Error(err.detail || 'Login failed');
       }
 
       const data = await res.json();
       localStorage.setItem('clarifibids_token', data.access_token);
       localStorage.setItem('clarifibids_user', JSON.stringify(data.user));
       setAuthToken(data.access_token);
-      
-      // Load this newly logged-in user's messages
+
       const userSavedMsgs = localStorage.getItem(`clarifibids_msgs_${data.user.id}`);
       setMessages(userSavedMsgs ? JSON.parse(userSavedMsgs) : []);
-
       setCurrentUser(data.user);
-      setAuthUsername('');
-      setAuthPassword('');
-      setAuthEmail('');
     } catch (err: any) {
-      setAuthError(err.message);
+      setAuthError(err.message || 'Login failed');
     } finally {
       setAuthSubmitting(false);
     }
@@ -430,103 +906,102 @@ export default function App() {
         <div className="auth-form-side">
           <div className="auth-form-container">
             <h2 className="auth-title">
-              {authTab === 'login' ? 'Sign In to ClarifiBids' : 'Create an Account'}
+              Sign In to ClarifiBids
             </h2>
             <p className="auth-desc">
-              {authTab === 'login' 
-                ? 'Authenticate to access your role-authorized procurement knowledge base.' 
-                : 'Select your business role to provision an authorized workspace.'}
+              Select your procurement role to enter the authorized intelligence workspace immediately.
             </p>
-
-            <div className="auth-tabs">
-              <button 
-                type="button"
-                className={`auth-tab ${authTab === 'login' ? 'active' : ''}`}
-                onClick={() => { setAuthTab('login'); setAuthError(''); }}
-              >
-                Sign In
-              </button>
-              <button 
-                type="button"
-                className={`auth-tab ${authTab === 'register' ? 'active' : ''}`}
-                onClick={() => { setAuthTab('register'); setAuthError(''); }}
-              >
-                Create Account
-              </button>
-            </div>
 
             {authError && <div className="auth-error">{authError}</div>}
 
-            <form onSubmit={handleAuthSubmit}>
-              <div className="form-group">
-                <label>Username</label>
-                <input
-                  type="text"
-                  required
+            <div style={{ marginTop: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#1e293b', marginBottom: '0.4rem', display: 'block' }}>
+                  Select Business / Organizational Role
+                </label>
+                <select 
                   className="form-input"
-                  placeholder="Enter your username"
-                  value={authUsername}
-                  onChange={e => setAuthUsername(e.target.value)}
-                />
+                  value={authRole}
+                  onChange={e => setAuthRole(e.target.value)}
+                  style={{ fontSize: '0.92rem', padding: '0.65rem 0.85rem', fontWeight: 600 }}
+                >
+                  <option value="Bidder">Bidder (Domestic Indian Procurement)</option>
+                  <option value="Foreign Bidder">Foreign Bidder (International Vendor)</option>
+                  <option value="Department User">Department User (Procuring Entity)</option>
+                  <option value="ADMIN">ADMIN (System & Document Management)</option>
+                </select>
               </div>
 
-              {authTab === 'register' && (
-                <>
-                  <div className="form-group">
-                    <label>Email Address</label>
-                    <input
-                      type="email"
-                      required
-                      className="form-input"
-                      placeholder="user@example.com"
-                      value={authEmail}
-                      onChange={e => setAuthEmail(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label>Assigned Business Role</label>
-                    <select 
-                      className="form-input"
-                      value={authRole}
-                      onChange={e => setAuthRole(e.target.value)}
-                    >
-                      <option value="Bidder">Bidder (Domestic Indian Procurement)</option>
-                      <option value="Foreign Bidder">Foreign Bidder (International Vendor)</option>
-                      <option value="Department User">Department User (Procuring Entity)</option>
-                      <option value="ADMIN">ADMIN (System & Document Management)</option>
-                    </select>
-                  </div>
-
-                  <div className="role-badge-explainer">
-                    <ShieldCheck size={16} />
-                    <span>Your selected role enforces data isolation and permitted operational procedures.</span>
-                  </div>
-                </>
-              )}
-
-              <div className="form-group">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <label>Password</label>
-                  {authTab === 'register' && (
-                    <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Minimum 4 characters</span>
-                  )}
-                </div>
-                <input
-                  type="password"
-                  required
-                  minLength={authTab === 'register' ? 4 : undefined}
-                  className="form-input"
-                  placeholder="Enter password (at least 4 characters)"
-                  value={authPassword}
-                  onChange={e => setAuthPassword(e.target.value)}
-                />
+              <div className="role-badge-explainer" style={{ margin: '0.2rem 0 0.5rem 0' }}>
+                <ShieldCheck size={16} color="#0284c7" />
+                <span>Enforces strict role-based policy isolation and prevents unauthorized document leakage.</span>
               </div>
 
-              <button type="submit" className="submit-auth-btn" disabled={authSubmitting}>
-                {authSubmitting ? 'Authenticating...' : authTab === 'login' ? 'Sign In to Workspace' : 'Register Account'}
+              <button 
+                type="button" 
+                className="submit-auth-btn" 
+                disabled={authSubmitting}
+                onClick={() => handleQuickLogin(authRole)}
+                style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center', 
+                  gap: '0.6rem',
+                  fontSize: '0.98rem',
+                  padding: '0.8rem',
+                  fontWeight: 700
+                }}
+              >
+                {authSubmitting ? (
+                  <>
+                    <div className="spinner" style={{ width: '16px', height: '16px', borderWidth: '2px' }}></div>
+                    <span>Accessing Workspace...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Enter Workspace as {authRole}</span>
+                    <ShieldCheck size={18} />
+                  </>
+                )}
               </button>
-            </form>
+
+              <div style={{ marginTop: '0.85rem', paddingTop: '0.85rem', borderTop: '1px dashed #cbd5e1' }}>
+                <span style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#64748b', fontWeight: 700, display: 'block', marginBottom: '0.5rem' }}>
+                  Quick Role Switcher
+                </span>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                  {[
+                    { label: 'Domestic Bidder', role: 'Bidder' },
+                    { label: 'Foreign Bidder', role: 'Foreign Bidder' },
+                    { label: 'Department User', role: 'Department User' },
+                    { label: 'Admin Portal', role: 'ADMIN' },
+                  ].map(btn => (
+                    <button
+                      key={btn.role}
+                      type="button"
+                      disabled={authSubmitting}
+                      onClick={() => handleQuickLogin(btn.role)}
+                      style={{
+                        background: '#f8fafc',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: '6px',
+                        padding: '0.45rem 0.6rem',
+                        fontSize: '0.76rem',
+                        fontWeight: 600,
+                        color: '#1e293b',
+                        cursor: 'pointer',
+                        textAlign: 'center',
+                        transition: 'all 0.15s ease'
+                      }}
+                      onMouseEnter={e => (e.currentTarget.style.borderColor = '#0284c7')}
+                      onMouseLeave={e => (e.currentTarget.style.borderColor = '#cbd5e1')}
+                    >
+                      {btn.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -584,6 +1059,17 @@ export default function App() {
             </div>
           </div>
 
+          {/* View Knowledge Graph Button */}
+          <button 
+            onClick={fetchGraphData}
+            className="download-doc-btn"
+            style={{ background: '#f0fdf4', borderColor: '#86efac', color: '#166534', fontWeight: 700 }}
+            title="Inspect relational Graph RAG entities and edges"
+          >
+            <BookOpen size={15} color="#166534" />
+            <span>Knowledge Graph</span>
+          </button>
+
           {/* Direct Upload Button for ADMIN */}
           {currentUser?.role === 'ADMIN' && (
             <button 
@@ -597,17 +1083,6 @@ export default function App() {
             </button>
           )}
 
-
-          {/* Download Official Document Button */}
-          <a 
-            href="/FAQ.docx" 
-            download="GePNIC_FAQ_Manual.docx"
-            className="download-doc-btn"
-            title="Download the official GePNIC Procurement FAQ Document"
-          >
-            <Download size={15} color="#0284c7" />
-            <span>Download Official FAQ</span>
-          </a>
 
           {/* New / Reset Conversation Button */}
           {messages.length > 0 && (
@@ -805,6 +1280,22 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="assistant-message">
+                    {msg.strategy && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
+                        <span style={{ 
+                          fontSize: '0.7rem', 
+                          fontWeight: 800, 
+                          textTransform: 'uppercase', 
+                          padding: '0.2rem 0.55rem', 
+                          borderRadius: '4px',
+                          background: msg.strategy.includes('GRAPH') ? '#f0fdf4' : msg.strategy.includes('WEB') ? '#fff7ed' : '#f0f9ff',
+                          color: msg.strategy.includes('GRAPH') ? '#166534' : msg.strategy.includes('WEB') ? '#c2410c' : '#0369a1',
+                          border: `1px solid ${msg.strategy.includes('GRAPH') ? '#86efac' : msg.strategy.includes('WEB') ? '#fed7aa' : '#bae6fd'}`
+                        }}>
+                          ⚡ Active Routing: {msg.strategy}
+                        </span>
+                      </div>
+                    )}
                     <div className="response-text">
                       {msg.text.split('\n').map((line, idx) => (
                         <p key={idx}>{line}</p>
@@ -820,15 +1311,6 @@ export default function App() {
                             Official Government Document Reference
                           </span>
                           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                            <a 
-                              href="/FAQ.docx" 
-                              download="GePNIC_FAQ_Manual.docx" 
-                              className="source-download-link"
-                              title="Download complete GePNIC FAQ Manual"
-                            >
-                              <Download size={13} />
-                              <span>Download Document</span>
-                            </a>
                             <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.75rem', color: '#16a34a', fontWeight: 600 }}>
                               <CheckCircle2 size={14} /> Verified Policy
                             </span>
@@ -845,9 +1327,60 @@ export default function App() {
                                   <span className="badge-item-number" style={{ background: '#f8fafc', border: '1px solid #cbd5e1', padding: '0.2rem 0.55rem', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 700, color: '#1e293b' }}>
                                     Item #{s.item_number}
                                   </span>
-                                  <span className="badge-page-reference" style={{ background: '#ecfdf5', border: '1px solid #6ee7b7', padding: '0.2rem 0.65rem', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 800, color: '#065f46' }}>
-                                    📖 Reference: Page {s.page_number || ((s.item_number - 1) % 4) + 1}
+                                  <span 
+                                    className="badge-page-reference cursor-pointer" 
+                                    style={{ 
+                                      background: '#ecfdf5', 
+                                      border: '1px solid #10b981', 
+                                      padding: '0.25rem 0.75rem', 
+                                      borderRadius: '4px', 
+                                      fontSize: '0.75rem', 
+                                      fontWeight: 800, 
+                                      color: '#065f46',
+                                      cursor: 'pointer',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '0.35rem',
+                                      boxShadow: '0 1px 2px rgba(16, 185, 129, 0.15)',
+                                      transition: 'all 0.2s ease'
+                                    }}
+                                    title="Click to open exact page of the actual document in browser"
+                                    onClick={() => {
+                                      const page = s.page_number || 1;
+                                      const docName = s.file_name || 'FAQ.docx';
+                                      window.open(`http://127.0.0.1:8000/api/v1/documents/view/${encodeURIComponent(docName)}#page=${page}`, '_blank');
+                                    }}
+                                  >
+                                    📖 Reference: Page {s.page_number || 1}
+                                    <span style={{ fontSize: '0.65rem', background: '#059669', color: '#fff', padding: '0.1rem 0.35rem', borderRadius: '3px', textTransform: 'uppercase' }}>
+                                      Open Exact Page ↗
+                                    </span>
                                   </span>
+
+                                  <button
+                                    type="button"
+                                    style={{
+                                      background: '#f0f9ff',
+                                      border: '1px solid #bae6fd',
+                                      color: '#0284c7',
+                                      padding: '0.25rem 0.6rem',
+                                      borderRadius: '4px',
+                                      fontSize: '0.74rem',
+                                      fontWeight: 700,
+                                      cursor: 'pointer',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '0.25rem'
+                                    }}
+                                    title="Open quick text preview popup"
+                                    onClick={() => openDocumentPreview(
+                                      s.file_name || 'FAQ.docx',
+                                      s.page_number || ((s.item_number - 1) % 4) + 1,
+                                      s.item_number
+                                    )}
+                                  >
+                                    Quick Preview
+                                  </button>
                                 </div>
                                 <span className="similarity-badge">
                                   Confidence: {(s.similarity_score * 100).toFixed(0)}%
@@ -1028,6 +1561,162 @@ export default function App() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Knowledge Graph Visual Flow Explorer Modal */}
+      {showGraphModal && (
+        <KnowledgeGraphModal
+          graphData={graphData}
+          loadingGraph={loadingGraph}
+          selectedGraphNode={selectedGraphNode}
+          setSelectedGraphNode={setSelectedGraphNode}
+          onClose={() => setShowGraphModal(false)}
+        />
+      )}
+
+      {/* Interactive Document Page Preview Modal */}
+
+      {/* Interactive Document Page Preview Modal */}
+      {previewModal.isOpen && (
+        <div 
+          className="modal-overlay" 
+          style={{ 
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.75)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: '1.5rem'
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setPreviewModal(prev => ({ ...prev, isOpen: false }));
+            }
+          }}
+        >
+          <div 
+            className="modal-card" 
+            style={{ 
+              maxWidth: '820px', 
+              width: '100%', 
+              maxHeight: '90vh', 
+              display: 'flex', 
+              flexDirection: 'column',
+              backgroundColor: '#ffffff',
+              borderRadius: '12px',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.35)',
+              border: '1px solid #cbd5e1',
+              padding: '1.5rem',
+              overflow: 'hidden'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.85rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{ background: '#0284c7', color: '#fff', borderRadius: '8px', padding: '0.5rem', display: 'flex' }}>
+                  <BookOpen size={22} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#0a2540', fontWeight: 700 }}>
+                    Official Document Page Preview
+                  </h3>
+                  <p style={{ margin: '0.2rem 0 0 0', fontSize: '0.8rem', color: '#64748b' }}>
+                    📄 {previewModal.fileName} • Page {previewModal.pageNumber} of {previewModal.totalPages}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewModal(prev => ({ ...prev, isOpen: false }))}
+                style={{ 
+                  background: '#f1f5f9', 
+                  border: '1px solid #cbd5e1', 
+                  borderRadius: '6px',
+                  cursor: 'pointer', 
+                  color: '#475569', 
+                  padding: '0.4rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+                title="Close Preview"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ padding: '1rem 0', flex: 1, overflowY: 'auto' }}>
+              {previewModal.loading ? (
+                <div style={{ textAlign: 'center', padding: '3.5rem 0', color: '#64748b' }}>
+                  <div className="spinner" style={{ margin: '0 auto 1rem auto' }}></div>
+                  <p style={{ fontSize: '0.9rem', fontWeight: 600 }}>Extracting exact page contents from official document...</p>
+                </div>
+              ) : previewModal.error ? (
+                <div style={{ background: '#fef2f2', border: '1px solid #fecaca', padding: '1.25rem', borderRadius: '8px', color: '#991b1b' }}>
+                  <AlertCircle size={22} style={{ marginBottom: '0.5rem' }} />
+                  <p style={{ fontWeight: 700 }}>Failed to load document preview</p>
+                  <p style={{ fontSize: '0.85rem', marginTop: '0.35rem' }}>{previewModal.error}</p>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {previewModal.highlightClause && (
+                    <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: '8px', padding: '0.85rem 1rem' }}>
+                      <span style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#166534', fontWeight: 800 }}>
+                        Highlighted Query Clause
+                      </span>
+                      <h4 style={{ margin: '0.35rem 0 0 0', color: '#14532d', fontSize: '0.95rem', fontWeight: 700 }}>
+                        {previewModal.highlightClause}
+                      </h4>
+                    </div>
+                  )}
+
+                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '1.25rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.5rem' }}>
+                      <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        Document Page Extracted Content
+                      </span>
+                      <span style={{ fontSize: '0.75rem', color: '#0284c7', fontWeight: 600 }}>
+                        GePNIC Authoritative Source
+                      </span>
+                    </div>
+                    <pre style={{ 
+                      whiteSpace: 'pre-wrap', 
+                      wordBreak: 'break-word', 
+                      fontFamily: 'inherit', 
+                      fontSize: '0.88rem', 
+                      lineHeight: 1.65, 
+                      color: '#0f172a', 
+                      maxHeight: '380px', 
+                      overflowY: 'auto',
+                      margin: 0
+                    }}>
+                      {previewModal.pageText}
+                    </pre>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #e2e8f0', paddingTop: '0.85rem', marginTop: 'auto' }}>
+              <span style={{ fontSize: '0.76rem', color: '#64748b' }}>
+                National Informatics Centre (NIC) • eProcurement Project
+              </span>
+              <button
+                type="button"
+                className="submit-auth-btn"
+                style={{ width: 'auto', padding: '0.5rem 1.4rem', fontSize: '0.88rem' }}
+                onClick={() => setPreviewModal(prev => ({ ...prev, isOpen: false }))}
+              >
+                Close Preview
+              </button>
             </div>
           </div>
         </div>
